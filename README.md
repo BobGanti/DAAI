@@ -1,5 +1,5 @@
 # AI Assistant for Data Science 🤖
-Welcome to the AI Assistant for Data Science, an interactive tool designed to facilitate and enhance your data science projects. Leveraging the power of AI through OpenAI's APIs and Streamlit's interactive interface, this application allows you to upload CSV files for comprehensive analysis, offering insights, data cleaning suggestions, and exploratory data analysis (EDA) capabilities.
+Welcome to the AI Assistant for Data Science, an interactive tool designed to facilitate and enhance your data science projects. Witn the power of AI through OpenAI's APIs and Streamlit's interactive interface, this application allows you to upload CSV files for comprehensive analysis, offering insights, data cleaning suggestions, and exploratory data analysis (EDA) capabilities.
 Features
 1.	Data Science Journey Initiation: Start your adventure by uploading a CSV file and let the AI dive into the data, providing valuable insights and understandings.
 2.	Automated Exploratory Data Analysis (EDA): Get automated steps and guidelines for EDA, helping you understand the dataset comprehensively.
