@@ -5,7 +5,10 @@ import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 
 from langchain_community.llms import OpenAI
+from langchain.chains.llm import LLMChain
+from langchain.chains.sequential import SimpleSequentialChain, SequentialChain
 from langchain_experimental.agents import create_pandas_dataframe_agent
+from langchain.prompts import PromptTemplate
 
 
 load_dotenv(".env.local")
@@ -116,7 +119,51 @@ if st.session_state.clicked[1]:
             st.subheader("Further study")
         if user_question_variable:
             user_question_dataframe = st.text_input("Is there anything else?")
-            if user_question_dataframe is not None and user_question_dataframe !=""and        user_question_dataframe not in ("","no","No","NO"):
+            if user_question_dataframe is not None and user_question_dataframe !=""and user_question_dataframe not in ("","no","No","NO"):
                 function_question_dataframe()
             else: st.write("")
+
+            if user_question_dataframe:
+                st.divider()
+                st.header("Data Science Problem")
+                st.write("Now that we have a solid grasp of the data at hand and a clear understanding of the variable we intend to investigate, it's important that to reframe the business problem into a data science problem.")
+                
+                prompt = st.text_input("Add your prompt here")
+
+                data_problem_template = PromptTemplate(
+                    input_variables=['business_problem'],
+                    template='Convert the following business problem into a data science problem: {business_problem}'
+                )
+
+                model_selection_template = PromptTemplate(
+                    input_variables=['data_problem'],
+                    template="Give a list of machine learning algorithms, in order of suitability, that are suitable for solving this problem. Start with 'The following ranked list of Algorithms are suitable for this task': {data_problem}"
+                )
+
+                data_problem_chain = LLMChain(
+                    llm=llm, 
+                    prompt=data_problem_template, 
+                    verbose=True,
+                    output_key="data_problem"
+                )
+
+                model_selection_chain = LLMChain(
+                    llm=llm,
+                    prompt=model_selection_template,
+                    verbose=True,
+                    output_key="model_selection"
+                )
+                
+                sequential_chain = SequentialChain(
+                    chains=[data_problem_chain, model_selection_chain], 
+                    input_variables=["business_problem"],
+                    output_variables=["data_problem","model_selection"],
+                    verbose=True
+                )
+
+                if prompt:
+                    response = sequential_chain({"business_problem": prompt})
+                    st.write(response["data_problem"])
+                    st.write(response["model_selection"])
+          
 
