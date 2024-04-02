@@ -6,11 +6,13 @@ from dotenv import load_dotenv, find_dotenv
 
 from langchain_community.llms import OpenAI
 from langchain.chains.llm import LLMChain
-from langchain.chains.sequential import SimpleSequentialChain, SequentialChain
-from langchain_experimental.agents import create_pandas_dataframe_agent
-from langchain_experimental.tools.python.tool import PythonREPLTool
+from langchain.chains.sequential import SequentialChain
+from langchain.agents.agent_types import AgentType
 from langchain.prompts import PromptTemplate
 from langchain_community.utilities import WikipediaAPIWrapper
+from langchain_experimental.agents.agent_toolkits import create_python_agent
+from langchain_experimental.tools.python.tool import PythonREPLTool
+from langchain_experimental.agents.agent_toolkits.pandas.base import create_pandas_dataframe_agent
 
 
 load_dotenv(".env.local")
@@ -43,7 +45,7 @@ if st.session_state.clicked[1]:
     user_csv = st.file_uploader("Upload your csv file here", type="csv")
     if user_csv is not None:
         user_csv.seek(0)  # Ensuring that the pointer is at the start of file
-        df = pd.read_csv(user_csv, low_memory=False)
+        df = pd.read_csv(user_csv)
 
         llm = OpenAI(temperature=0)
 
@@ -56,7 +58,7 @@ if st.session_state.clicked[1]:
         # Instantiate a AI agent
         pandas_agent = create_pandas_dataframe_agent(llm, df, verbose=True)
 
-        # Function of the main scripts949
+        # Function of the main scripts
         @st.cache_data
         def function_agent():
             st.write("**Data Overview**")
@@ -74,7 +76,7 @@ if st.session_state.clicked[1]:
             st.write("**Data Summarisation**")
             st.write(df.describe())
             correlation_analysis = pandas_agent.run("Calculate the correlations between the numerical variables to identify potential relationships.")
-            st.write(correlation_analysis)
+            st.write(f"**Correlation:** {correlation_analysis}")
             outliers = pandas_agent.run("Identify Outliers in the data that may be errorneous or that may have a significant impact on the analysis.")
             st.write(f"**Outliers:** {outliers}")
             new_features = pandas_agent.run("What new features would be interesting to create for this analysis?")
@@ -106,49 +108,30 @@ if st.session_state.clicked[1]:
         def wikipedia(prompt):
             wikipedia_research = WikipediaAPIWrapper().run(prompt)
             return wikipedia_research
-
+  
         @st.cache_data
         def prompt_templates():
             data_problem_template = PromptTemplate(
                 input_variables=['business_problem'],
-                template='Convert the following business problem into a data science problem: {business_problem}'
+                template='Convert the following business problem into a data science problem: {business_problem}.'
             )
 
             model_selection_template = PromptTemplate(
-                input_variables=['data_problem'],
-                template="Give a list of machine learning algorithms, in order of suitability, that are suitable for solving this problem. Start with 'The following ranked list of Algorithms are suitable for this task': {data_problem}, while using this wikipedia research; {wikipedia_research}"
+                input_variables=['data_problem', 'wikipedia_research'],
+                template='Give a list of machine learning algorithms that are suitable to solve this problem: {data_problem}, while using this Wikipedia research: {wikipedia_research}.'
             )
 
             return data_problem_template, model_selection_template
 
-        #@st.cache_data
+        @st.cache_resource
         def chains():
-            templates = prompt_templates()
-            data_problem_chain = LLMChain(
-                llm=llm, 
-                prompt=templates[0], 
-                output_key="data_problem",
-                verbose=True
-            )
-
-            model_selection_chain = LLMChain(
-                llm=llm,
-                prompt=templates[1],
-                output_key="model_selection",
-                verbose=True,                   
-            )
-                
-            sequential_chain = SequentialChain(
-                chains=[data_problem_chain, model_selection_chain], 
-                input_variables=["business_problem", "wikipedia_research"],
-                output_variables=["data_problem","model_selection"],
-                verbose=True
-            )
-
+            data_problem_chain = LLMChain(llm=llm, prompt=prompt_templates()[0], verbose=True, output_key='data_problem')
+            model_selection_chain = LLMChain(llm=llm, prompt=prompt_templates()[1], verbose=True, output_key='model_selection')
+            sequential_chain = SequentialChain(chains=[data_problem_chain, model_selection_chain], input_variables=['business_problem', 'wikipedia_research'], output_variables=['data_problem', 'model_selection'], verbose=True)
             return sequential_chain
 
         @st.cache_data
-        def chains_output(prompt, wiki_research):
+        def chains_output(prompt, wikipedia_research):
             my_chain = chains()
             my_chain_output = my_chain({
                 "business_problem":prompt, 
@@ -159,7 +142,35 @@ if st.session_state.clicked[1]:
 
             return my_data_problem, my_model_selection
 
-        # Main
+        @st.cache_data
+        def list_to_selectbox(my_model_selection_input):
+            algorithm_lines = my_model_selection_input.split('\n')
+            algorithms = [algorithm.split(':')[-1].split('.')[-1].strip() for algorithm in algorithm_lines if algorithm.strip()]
+            algorithms.insert(0, "Select Algorithm")
+            formatted_list_output = [f"{algorithm}" for algorithm in algorithms if algorithm]
+            return formatted_list_output
+
+        @st.cache_resource
+        def python_agent():
+            agent_executor = create_python_agent(
+                llm=llm,
+                tool=PythonREPLTool(),
+                verbose=True,
+                max_execution_time=5,
+                agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                handle_parsing_errors=True,
+            )
+            return agent_executor
+        
+        @st.cache_data
+        def python_solution(my_data_problem, selected_algorithm, user_csv):
+            solution = python_agent().run(
+                f"Write a Python script to solve this: {my_data_problem}, using this algorithm: {selected_algorithm}, using this as your dataset: {user_csv}."
+            )
+            return solution
+
+
+        #******** Main *****************#
         st.header("Exploratory Data Analysis")
         st.subheader("General information about the dataset")
 
@@ -195,7 +206,16 @@ if st.session_state.clicked[1]:
                     my_data_problem = chains_output(prompt, wikipedia_research)[0]
                     my_model_selection = chains_output(prompt, wikipedia_research)[1]
 
-                    st.write(my_data_problem)
+                    st.write(f"\n{my_data_problem}")
+                    st.subheader("The ranked list below are algorithms suitable for this task:")
                     st.write(my_model_selection)
+
+                    formatted_list = list_to_selectbox(my_model_selection)
+                    selected_algorithm = st.selectbox("Select ML Algorithm", formatted_list)
+                    
+                    if selected_algorithm is not None and selected_algorithm != "Select Algorithm":
+                        st.subheader("Solution")
+                        solution = python_solution(my_data_problem, selected_algorithm, user_csv)
+                        st.write(solution)
           
 
